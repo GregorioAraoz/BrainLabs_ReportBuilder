@@ -186,8 +186,8 @@ if processed_df is not None:
             st.markdown('<div class="card">', unsafe_allow_html=True)
             st.markdown("#### ➕ Agregar Columna Calculada")
             
-            # Formulario para crear columna personalizada
-            with st.form("custom_column_form", clear_on_submit=True):
+            # Contenedor para crear columna personalizada (sin st.form para permitir vista previa en tiempo real)
+            with st.container():
                 # Validar columnas numéricas para las operaciones
                 numeric_cols = processed_df.select_dtypes(include=['number']).columns.tolist()
                 
@@ -220,7 +220,37 @@ if processed_df is not None:
                     col2_selected = None
                     constant_value = st.number_input("Ingresa el valor constante", value=1.0, format="%f")
                 
-                submit_button = st.form_submit_button("Crear Columna")
+                # --- VISTA PREVIA EN TIEMPO REAL ---
+                if col1_selected:
+                    try:
+                        v1 = pd.to_numeric(processed_df[col1_selected], errors='coerce')
+                        if op2_type == "Otra columna" and col2_selected:
+                            v2 = pd.to_numeric(processed_df[col2_selected], errors='coerce')
+                        else:
+                            v2 = float(constant_value)
+                        
+                        if operator == "Multiplicar (*)":
+                            preview_series = v1 * v2
+                        elif operator == "Dividir (/)":
+                            preview_series = v1.div(v2).replace([float('inf'), float('-inf')], None)
+                        elif operator == "Sumar (+)":
+                            preview_series = v1 + v2
+                        elif operator == "Restar (-)":
+                            preview_series = v1 - v2
+                            
+                        st.markdown("**🔍 Vista previa del cálculo (primeras 3 filas):**")
+                        preview_df = pd.DataFrame({
+                            col1_selected: v1.head(3),
+                            "Operador": operator.split()[0],
+                            "Operando B": v2.head(3) if op2_type == "Otra columna" else v2,
+                            "=": "=",
+                            new_col_name if new_col_name else "Resultado": preview_series.head(3)
+                        })
+                        st.dataframe(preview_df, use_container_width=True)
+                    except Exception as e:
+                        pass
+                
+                submit_button = st.button("Confirmar y Crear Columna", use_container_width=True)
                 
                 if submit_button:
                     # Validaciones
@@ -362,6 +392,13 @@ if processed_df is not None:
             )
             
             st.markdown('</div>', unsafe_allow_html=True)
+            
+            with st.expander("🔍 Ver datos seleccionados para el gráfico"):
+                cols_to_preview = [x_axis, y_axis]
+                if color_by != "Ninguno" and color_by not in cols_to_preview:
+                    cols_to_preview.append(color_by)
+                st.dataframe(processed_df[cols_to_preview].head(5), use_container_width=True)
+                
             st.info("💡 Consejo: Los gráficos creados con Plotly son completamente interactivos. Puedes hacer zoom, seleccionar áreas o pasar el mouse por encima para ver los valores. Usa la barra de herramientas flotante del gráfico para descargarlo como imagen (icono de cámara).")
             
         with col_chart_render:
