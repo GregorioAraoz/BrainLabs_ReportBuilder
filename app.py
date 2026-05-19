@@ -66,6 +66,8 @@ if "raw_df" not in st.session_state:
     st.session_state.raw_df = None
 if "custom_cols" not in st.session_state:
     st.session_state.custom_cols = []
+if "filters" not in st.session_state:
+    st.session_state.filters = []
 if "file_name" not in st.session_state:
     st.session_state.file_name = ""
 
@@ -89,6 +91,7 @@ with st.sidebar:
         if st.session_state.file_name != uploaded_file.name:
             st.session_state.file_name = uploaded_file.name
             st.session_state.custom_cols = [] # Reiniciar columnas calculadas al cambiar de archivo
+            st.session_state.filters = [] # Reiniciar filtros
             
             try:
                 if uploaded_file.name.endswith(".csv"):
@@ -109,6 +112,7 @@ with st.sidebar:
         st.session_state.raw_df = None
         st.session_state.file_name = ""
         st.session_state.custom_cols = []
+        st.session_state.filters = []
 
     st.markdown("---")
     st.markdown("### ⚙️ Información de Datos")
@@ -163,12 +167,102 @@ def apply_custom_columns(df):
             
     return working_df
 
+def apply_global_filters(df):
+    if df is None or df.empty:
+        return df
+    
+    working_df = df.copy()
+    for f in st.session_state.filters:
+        col = f["col"]
+        op = f["op"]
+        val = f["val"]
+        
+        if col not in working_df.columns:
+            continue
+            
+        try:
+            # Filtros numéricos
+            if op == "Mayor que (>)":
+                working_df = working_df[working_df[col] > float(val)]
+            elif op == "Menor que (<)":
+                working_df = working_df[working_df[col] < float(val)]
+            elif op == "Igual a (num)":
+                working_df = working_df[working_df[col] == float(val)]
+            # Filtros de texto
+            elif op == "Contiene":
+                working_df = working_df[working_df[col].astype(str).str.contains(str(val), case=False, na=False)]
+            elif op == "No contiene":
+                working_df = working_df[~working_df[col].astype(str).str.contains(str(val), case=False, na=False)]
+            elif op == "Empieza con":
+                working_df = working_df[working_df[col].astype(str).str.startswith(str(val), na=False)]
+            elif op == "Termina con":
+                working_df = working_df[working_df[col].astype(str).str.endswith(str(val), na=False)]
+            elif op == "Es igual a (texto)":
+                working_df = working_df[working_df[col].astype(str).str.lower() == str(val).lower()]
+        except Exception as e:
+            pass # Ignorar filtro si hay error de tipo (ej. texto no numérico)
+            
+    return working_df
+
 # Obtener DataFrame con columnas calculadas
 if st.session_state.raw_df is not None:
-    processed_df = apply_custom_columns(st.session_state.raw_df)
+    # Primero aplicamos las columnas calculadas
+    base_df = apply_custom_columns(st.session_state.raw_df)
+    # Luego los filtros (procesamos los filtros antes de mandar a tabs)
+    processed_df = apply_global_filters(base_df)
 else:
+    base_df = None
     processed_df = None
 
+
+# ----------------- UI FILTROS GLOBALES -----------------
+if base_df is not None:
+    # Mostramos los filtros globales arriba de todo, usando base_df para que estén disponibles todas las columnas
+    with st.expander("🔍 Filtros Globales (Aplica a Reportes y Gráficos)", expanded=bool(st.session_state.filters)):
+        st.markdown("Crea reglas para filtrar la información que quieres visualizar.")
+        f_col1, f_col2, f_col3, f_col4 = st.columns([3, 2, 3, 2])
+        
+        all_cols = base_df.columns.tolist()
+        
+        with f_col1:
+            filter_col = st.selectbox("Columna a filtrar", options=all_cols, key="filter_col_select")
+        
+        is_numeric = pd.api.types.is_numeric_dtype(base_df[filter_col]) if filter_col else False
+        if is_numeric:
+            operators = ["Mayor que (>)", "Menor que (<)", "Igual a (num)"]
+        else:
+            operators = ["Contiene", "No contiene", "Empieza con", "Termina con", "Es igual a (texto)"]
+            
+        with f_col2:
+            filter_op = st.selectbox("Condición", options=operators, key="filter_op_select")
+            
+        with f_col3:
+            filter_val = st.text_input("Valor", key="filter_val_input")
+            
+        with f_col4:
+            st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+            if st.button("Agregar Filtro", use_container_width=True):
+                if filter_val:
+                    st.session_state.filters.append({
+                        "col": filter_col,
+                        "op": filter_op,
+                        "val": filter_val
+                    })
+                    st.rerun()
+                else:
+                    st.warning("Ingresa un valor.")
+                    
+        if st.session_state.filters:
+            st.markdown("---")
+            st.markdown("**Filtros Activos:**")
+            for idx, f in enumerate(st.session_state.filters):
+                act_col1, act_col2 = st.columns([11, 1])
+                with act_col1:
+                    st.markdown(f"🏷️ `{f['col']}` {f['op']} **{f['val']}**")
+                with act_col2:
+                    if st.button("❌", key=f"del_filter_{idx}"):
+                        st.session_state.filters.pop(idx)
+                        st.rerun()
 
 # ----------------- VISTA DE TABS -----------------
 if processed_df is not None:
